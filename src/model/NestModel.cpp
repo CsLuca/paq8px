@@ -193,7 +193,7 @@ void NestModel::mix(Mixer &m) {
     if( c4 == 0x266C743B ) {
       uc = min(7, uc + 1); //&lt;
     } else if( c4 == 0x2667743B ) {
-      uc -= static_cast<int>(uc > 0); //&gt;
+      uc -= static_cast<int>(uc > 0); //&gt; 
     }
     if( matched != 0 ) {
       bc = 0;

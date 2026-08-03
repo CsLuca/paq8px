@@ -19,4 +19,4 @@ afl-out
 x64/
 release/
 debug/
-packages/
+packages/test/ 
