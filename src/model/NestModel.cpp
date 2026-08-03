@@ -6,6 +6,7 @@ void NestModel::mix(Mixer &m) {
   INJECT_SHARED_bpos
   if( bpos == 0 ) {
     INJECT_SHARED_c1
+    INJECT_SHARED_blockType
     int c = c1;
     int matched = 1;
     int vv = 0;
@@ -37,6 +38,59 @@ void NestModel::mix(Mixer &m) {
       lvc = vv;
     }
     INJECT_SHARED_c4
+
+    int wikiSignal = 0;
+    const uint32_t c2c1 = c4 & 0xFFFF;
+    if (c2c1 == 0x5B5B) { // [[
+      wikiSignal = 4;
+      wikiTok = 1;
+      wikiLinkDepth = min(63, wikiLinkDepth + 1);
+    }
+    else if (c2c1 == 0x5D5D) { // ]]
+      wikiSignal = 4;
+      wikiTok = 2;
+      wikiLinkDepth -= static_cast<int>(wikiLinkDepth > 0);
+    }
+    else if (c2c1 == 0x7B7B) { // {{
+      wikiSignal = 5;
+      wikiTok = 3;
+      wikiTplDepth = min(63, wikiTplDepth + 1);
+    }
+    else if (c2c1 == 0x7D7D) { // }}
+      wikiSignal = 5;
+      wikiTok = 4;
+      wikiTplDepth -= static_cast<int>(wikiTplDepth > 0);
+    }
+    else if (c == '|') {
+      wikiSignal = 3;
+      wikiTok = 5;
+    }
+    else if (c2c1 == 0x3D3D) { // ==
+      wikiSignal = 3;
+      wikiTok = 6;
+    }
+    else if (c4 == 0x266C743B) { // &lt;
+      wikiSignal = 2;
+      wikiTok = 7;
+    }
+    else if (c4 == 0x2667743B) { // &gt;
+      wikiSignal = 2;
+      wikiTok = 8;
+    }
+    else if (c4 == 0x3C726566 || c4 == 0x2F726566) { // <ref /ref
+      wikiSignal = 4;
+      wikiTok = 9;
+    }
+    else {
+      wikiTok = (wikiTok * 3 + vv) & 0x0F;
+    }
+
+    wikiScore += wikiSignal * 6;
+    wikiScore -= static_cast<int>(wikiSignal == 0 && wikiScore > 0);
+    wikiScore = wikiScore < 0 ? 0 : wikiScore;
+    wikiScore = min(255, wikiScore);
+    wikiMode = static_cast<int>(wikiScore >= 24);
+
     switch( c ) {
       case ' ':
         qc = 0;
@@ -163,6 +217,19 @@ void NestModel::mix(Mixer &m) {
     cm.set(R_, hash(++i, vc & 0xffff, c4 & 0xff));
     cm.set(R_, hash(++i, (3 * pc) & 0xffff, c4 & 0xff));
     cm.set(R_, hash(++i, ic & 0xffff, c4 & 0xff));
+
+    if (wikiMode != 0 && isTEXT(blockType)) {
+      cm.set(R_, hash(++i, wikiTok, vc & 0xffff, pc & 0x03ff, ic & 0x03ff));
+      cm.set(R_, hash(++i, wikiTok, qc & 0x03ff, uc & 0x0f, ilog2(bc + 1)));
+      cm.set(R_, hash(++i, wikiTok, c4 & 0xffff, (c4 >> 16) & 0xff));
+      cm.set(R_, hash(++i, wikiTok, wc & 0xffff, (c1 | 0x100), wikiLinkDepth & 0x3f, wikiTplDepth & 0x3f));     
+    }
+    else {
+      cm.skip(R_);
+      cm.skip(R_);
+      cm.skip(R_);
+      cm.skip(R_);
+    }
   }
   cm.mix(m);
 }

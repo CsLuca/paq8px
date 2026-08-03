@@ -1,0 +1,30 @@
+PROG_NAME	PROG_VERSION	COMMAND_LINE	LEVEL	INPUT_FILENAME	ORIGINAL_SIZE_BYTES	COMPRESSED_SIZE_BYTES	RUNTIME_MS
+
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	732681	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	749478	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	1214214	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	966077	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	741313	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	764530	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	747055	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	744349	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	1003578	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	740469	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774754	827538	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774571	740225	nuovo
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774571	735226	nuovo
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774575	754877	nuovo nuovo no
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774585	736667  nuovo nuovo no
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774582	784102	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774571	731347	
+paq8px	216	 -10 enwik7.txt enwik7.paq8px -v -log result.txt	10	enwik7.txt	10000000	1774620	759050
+
+paq8px	216	 -10 enwik8 enwik8.paq8px -v -log result.txt	10	enwik8	100000000	16182033	7418475	
+paq8px	216	 -10 enwik8 enwik8.paq8px -v -log result.txt	10	enwik8	100000000	16182033	9088202	
+paq8px	216	 -10 enwik8 enwik8.paq8px -v -log result.txt	10	enwik8	100000000	16182033	7889457	
+paq8px	216	 -10 enwik8 enwik8.paq8px -v -log result.txt	10	enwik8	100000000	16182033	7402309	
+paq8px	216	 -10 enwik8 enwik8.paq8px -v -log result.txt	10	enwik8	100000000	16180237	7909542	nuovo
+
+	
+
+	
