@@ -140,6 +140,10 @@ void NestModel::mix(Mixer &m) {
       uc = min(7, uc + 1); //&lt;
     } else if( c4 == 0x2667743B ) {
       uc -= static_cast<int>(uc > 0); //&gt;
+    } else if( c4 == 0x616D703B ) {
+      qc += 71; //&amp;
+    } else if( c4 == 0x756F743B ) {
+      pc += 0x40; //&quot; (uot;)
     }
     if( matched != 0 ) {
       bc = 0;

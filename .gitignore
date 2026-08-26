@@ -20,3 +20,14 @@ x64/
 release/
 debug/
 packages/
+test/enwik7.txt
+test/enwik8
+test/paq8px_v216.exe
+test/paq8px_v216lb_2.7z
+test/paq8px_v216lb.7z
+test/paq8px_v216lb.exe
+test/result.txt
+libzlib_bundled.a
+build/libzlib_bundled.a
+build/test.cpp
+src/model/NormalModel al 02082026.txt
