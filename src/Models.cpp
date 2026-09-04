@@ -187,6 +187,11 @@ auto Models::nestModel() -> NestModel & {
   return instance;
 }
 
+auto Models::wikiModel() -> WikiModel & {
+  static WikiModel instance {shared, shared->mem / 4};
+  return instance;
+}
+
 auto Models::xmlModel() -> XMLModel & {
   static XMLModel instance {shared, shared->mem / 4};
   return instance;

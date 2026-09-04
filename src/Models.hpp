@@ -23,6 +23,7 @@
 #include "model/SparseBitModel.hpp"
 #include "model/SparseModel.hpp"
 #include "model/WordModel.hpp"
+#include "model/WikiModel.hpp"
 #include "model/XMLModel.hpp"
 #include "model/DecAlphaModel.hpp"
 #include "lstm/LstmModelContainer.hpp"
@@ -56,6 +57,7 @@ public:
   auto textModel() -> TextModel&;
   auto wordModel() -> WordModel&;
   auto nestModel() -> NestModel&;
+  auto wikiModel() -> WikiModel&;
   auto xmlModel() -> XMLModel&;
   auto exeModel() -> ExeModel&;
   auto linearPredictionModel() -> LinearPredictionModel&;
