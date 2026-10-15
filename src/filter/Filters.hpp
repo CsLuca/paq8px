@@ -221,7 +221,7 @@ struct TextDetectionInfo {
 };
 
 // Detect text blocks (TEXT/TEXT_EOL) inside a DEFAULT block
-static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t blockSize) {
+static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t blockSize, SegmentationTrace* trace = nullptr) {
   TextDetectionInfo detectionInfo;
 
   TextParserStateInfo textParser;
@@ -230,8 +230,21 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
   in->setpos(blockStart);
   const uint64_t n = blockSize;
   uint32_t buf0 = 0;
+  uint64_t inspected = 0;
+  auto report = [&](const char* reason) {
+    if (trace) trace->event("text_detection", SegmentationTrace::range(blockStart, detectionInfo.DataLength)
+      + ",\"scan_end\":" + std::to_string(blockStart + inspected)
+      + ",\"type\":" + std::to_string(static_cast<int>(detectionInfo.Type))
+      + ",\"reason\":" + SegmentationTrace::quote(reason)
+      + ",\"parser_start\":" + std::to_string(textParser.Start)
+      + ",\"valid_length\":" + std::to_string(textParser.realLength())
+      + ",\"invalid_count\":" + std::to_string(textParser.invalidCount)
+      + ",\"utf8_state\":" + std::to_string(textParser.UTF8State)
+      + ",\"eol_type\":" + std::to_string(textParser.EOLType));
+  };
 
   for (uint64_t i = 0; i < n; ++i) {
+    inspected = i + 1;
     int c = in->getchar();
     if (c == EOF) {
       quit("detectText(): Unexpected end of file");
@@ -278,6 +291,7 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
           detectionInfo.Type = textParser.EOLType == 1 ? BlockType::TEXT_EOL : BlockType::TEXT;
           detectionInfo.DataStart = blockStart;
           detectionInfo.DataLength = textParser.End + 1;
+          report("miss_threshold_initial_text");
           return detectionInfo;
         }
 
@@ -291,6 +305,7 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
       detectionInfo.Type = BlockType::DEFAULT;
       detectionInfo.DataStart = blockStart;
       detectionInfo.DataLength = textParser.Start;
+      report("generic_prefix_before_text");
       return detectionInfo;
     }
   }
@@ -303,6 +318,7 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
     detectionInfo.Type = textParser.EOLType == 1 ? BlockType::TEXT_EOL : BlockType::TEXT;
     detectionInfo.DataStart = blockStart;
     detectionInfo.DataLength = n;
+    report(textParser.End + 1 == n ? "whole_valid_block" : "tolerated_tail");
     return detectionInfo;
   }
 
@@ -311,6 +327,7 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
     detectionInfo.Type = BlockType::DEFAULT;
     detectionInfo.DataStart = blockStart;
     detectionInfo.DataLength = textParser.Start; //could overshoot depending on how the inalidcount decays
+    report("generic_prefix_at_scan_end");
     return detectionInfo;
   }
 
@@ -319,6 +336,7 @@ static TextDetectionInfo detectText(File* in, uint64_t blockStart, uint64_t bloc
   detectionInfo.Type = BlockType::DEFAULT;
   detectionInfo.DataStart = blockStart;
   detectionInfo.DataLength = n;
+  report("no_accepted_text");
   return detectionInfo;
 }
 
@@ -2172,7 +2190,9 @@ static DetectionInfo detect(File *in, uint64_t blockSize, const TransformOptions
 
 //////////////////// Compress, Decompress ////////////////////////////
 
-static void directEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int info) {
+static void directEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int info, SegmentationTrace* trace = nullptr) {
+  if (trace) trace->event("emit", SegmentationTrace::range(in->curPos(), len)
+    + ",\"type\":" + std::to_string(static_cast<int>(type)) + ",\"info\":" + std::to_string(info));
   // TODO: Large file support
   Block::EncodeBlockHeader(&en, type, len, info);
   fprintf(stderr, "Compressing... ");
@@ -2343,7 +2363,10 @@ static uint64_t encodeFunc(BlockType type, File *in, File *tmp, uint64_t len, in
 }
 
 static void
-transformEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int info, String &blstr, float p1, float p2, uint64_t begin, const TransformOptions* const transformOptions) {
+transformEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int info, String &blstr, float p1, float p2, uint64_t begin, const TransformOptions* const transformOptions, const char* origin = "guided_child") {
+  auto trace = transformOptions->trace;
+  const uint64_t decisionId = trace ? trace->decision(type, begin, len, info, origin) : 0;
+  SegmentationTrace::DecisionScope decisionScope(trace, decisionId);
   if( hasTransform(type, info)) {
     FileTmp tmp;
     int headerSize = 0;
@@ -2358,13 +2381,18 @@ transformEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int in
     }
     // Test fails, compress without transform
     if( diffFound > 0 || tmp.getchar() != EOF) {
+      if (trace) trace->event("transform", ",\"outcome\":\"fallback\",\"tmp_size\":" + std::to_string(tmpSize));
       printf("Transform fails at %" PRIu64 ", skipping...\n", diffFound - 1);
       in->setpos(begin);
-      directEncodeBlock(BlockType::DEFAULT, in, len, en, -1);
+      directEncodeBlock(BlockType::DEFAULT, in, len, en, -1, trace);
     } else {
+      if (trace) trace->event("transform", ",\"outcome\":\"accepted\",\"tmp_size\":" + std::to_string(tmpSize)
+        + ",\"header_size\":" + std::to_string(headerSize));
       tmp.setpos(0);
       if( hasRecursion(type)) {
+        if (trace) trace->event("wrapper", ",\"type\":" + std::to_string(static_cast<int>(type)) + ",\"size\":" + std::to_string(tmpSize));
         Block::EncodeBlockHeader(&en, type, tmpSize, info&0xffffff);
+        SegmentationTrace::StreamScope streamScope(trace, tmpSize);
         BlockType type2 = static_cast<BlockType>((info >> 24) & 0xFF);
         if (isPNG(type)) {
             type2 =
@@ -2396,7 +2424,7 @@ transformEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int in
             printf(" %-11s | ->  %s |%10d bytes [%d - %d]\n", blstrSub0.c_str(), exploded, int(tmpSize), 0, int(tmpSize - 1));
           if (headerSize != 0) {
             printf(" %-11s | --> %s |%10d bytes [%d - %d]\n", blstrSub1.c_str(), addedheader, headerSize, 0, headerSize - 1);
-            directEncodeBlock(BlockType::HDR, &tmp, headerSize, en, -1);
+            directEncodeBlock(BlockType::HDR, &tmp, headerSize, en, -1, trace);
             printf(" %-11s | --> %s |%10d bytes [%d - %d]\n", blstrSub2.c_str(), dataname, int(tmpSize - headerSize), headerSize, int(tmpSize - 1));
           }
           transformEncodeBlock(type2, &tmp, tmpSize - headerSize, en, info & 0xffffff, blstr, p1, p2, headerSize, transformOptions);
@@ -2415,12 +2443,13 @@ transformEncodeBlock(BlockType type, File *in, uint64_t len, Encoder &en, int in
           blstrSub0 += "->";
           printf(" %-11s | ->  uncompressed |%10d bytes [%d - %d]\n", blstrSub0.c_str(), int(tmpSize), 0, int(tmpSize - 1));
         }
-        directEncodeBlock(type, &tmp, tmpSize, en, info);
+        SegmentationTrace::StreamScope streamScope(trace, tmpSize);
+        directEncodeBlock(type, &tmp, tmpSize, en, info, trace);
       }
     }
     tmp.close();
   } else {
-    directEncodeBlock(type, in, len, en, info);
+    directEncodeBlock(type, in, len, en, info, trace);
   }
 }
 
@@ -2478,14 +2507,14 @@ static void printBlock(const uint64_t begin, const uint64_t len, const BlockType
   printf("\n");
 }
 
-static void compressBlock(File* in, const uint64_t begin, const uint64_t len, int &blNum, BlockType type, int blockInfo, Encoder& en, String& blstr, float &p1, float &p2, const float pscale, const TransformOptions* const transformOptions) {
+static void compressBlock(File* in, const uint64_t begin, const uint64_t len, int &blNum, BlockType type, int blockInfo, Encoder& en, String& blstr, float &p1, float &p2, const float pscale, const TransformOptions* const transformOptions, const char* origin = "special_or_header") {
   p2 = p1 + pscale * len;
   en.setStatusRange(p1, p2);
 
   String blstrSub;
   composeSubBlockStringToPrint(blstr, blstrSub, blNum);
   printBlock(begin, len, type, blockInfo, blstrSub);
-  transformEncodeBlock(type, in, len, en, blockInfo, blstrSub, p1, p2, begin, transformOptions);
+  transformEncodeBlock(type, in, len, en, blockInfo, blstrSub, p1, p2, begin, transformOptions, origin);
   blNum++;
 
   p1 = p2;
@@ -2502,13 +2531,19 @@ static void compressRecursive(File *in, uint64_t bytesToProcess, Encoder &en, St
 
     //detect a block 
     DetectionInfo detectionInfo = detect(in, bytesToProcess, transformOptions); // Special blocktypes
+    if (transformOptions->trace) transformOptions->trace->event("special_detection",
+      SegmentationTrace::range(detectionInfo.DataStart, detectionInfo.DataLength)
+      + ",\"header_start\":" + std::to_string(detectionInfo.HeaderStart)
+      + ",\"header_length\":" + std::to_string(detectionInfo.HeaderLength)
+      + ",\"type\":" + std::to_string(static_cast<int>(detectionInfo.Type))
+      + ",\"sentinel\":" + std::string(detectionInfo.DataLength == 0 ? "true" : "false"));
     in->setpos(begin);
 
     uint64_t blockStart = detectionInfo.HeaderLength != 0 ? detectionInfo.HeaderStart : detectionInfo.DataStart;
     while(blockStart != begin) {
-      TextDetectionInfo textDetectionInfo = detectText(in, begin, blockStart - begin); // DEFAULT / TEXT / TEXT_EOL
+      TextDetectionInfo textDetectionInfo = detectText(in, begin, blockStart - begin, transformOptions->trace); // DEFAULT / TEXT / TEXT_EOL
       in->setpos(begin);
-      compressBlock(in, textDetectionInfo.DataStart, textDetectionInfo.DataLength, /*ref: */ blNum, textDetectionInfo.Type, 0, en, /*in: */ blstr, /*ref: */ p1, /*ref: */ p2, pscale, transformOptions);
+      compressBlock(in, textDetectionInfo.DataStart, textDetectionInfo.DataLength, /*ref: */ blNum, textDetectionInfo.Type, 0, en, /*in: */ blstr, /*ref: */ p1, /*ref: */ p2, pscale, transformOptions, "text_detection");
       begin += textDetectionInfo.DataLength;
       bytesToProcess -= textDetectionInfo.DataLength;
     }
@@ -2558,7 +2593,7 @@ static void compressRecursiveForTar(File* in, uint64_t bytesToProcess, Encoder& 
 // For each block, output
 // <type> <size> and call encode_X to convert to type X.
 // Test transform and compress.
-static void compressfile(const Shared* const shared, const char *filename, uint64_t fileSize, Encoder &en, bool verbose) {
+static void compressfile(const Shared* const shared, const char *filename, uint64_t fileSize, Encoder &en, bool verbose, SegmentationTrace* trace = nullptr) {
   assert(en.getMode() == COMPRESS);
   assert(filename && filename[0]);
 
@@ -2570,6 +2605,8 @@ static void compressfile(const Shared* const shared, const char *filename, uint6
   printf("Block segmentation:\n");
   String blstr;
   TransformOptions transformOptions(shared);
+  transformOptions.trace = trace;
+  if (trace) trace->begin(filename, fileSize);
   BlockType forcedBlockType = shared->GetOptionDetectBlockAsBinary() ? BlockType::DEFAULT : shared->GetOptionDetectBlockAsText() ? BlockType::TEXT : BlockType::Count;
   if (forcedBlockType != BlockType::Count) {
     // skip blockType detection + compress with DEFAULT or TEXT
@@ -2579,13 +2616,15 @@ static void compressfile(const Shared* const shared, const char *filename, uint6
     float p1 = 0.0f;
     float p2 = 1.0f;
     const float pscale = fileSize != 0 ? (p2 - p1) / fileSize : 0;
-    compressBlock(&in, begin, fileSize, /*ref: */ blNum, forcedBlockType, info, en, /*in: */ blstr, /*ref: */ p1, /*ref: */ p2, pscale, &transformOptions);
+    compressBlock(&in, begin, fileSize, /*ref: */ blNum, forcedBlockType, info, en, /*in: */ blstr, /*ref: */ p1, /*ref: */ p2, pscale, &transformOptions, "forced");
   }
   else {
     // detect block types + compress
     compressRecursive(&in, fileSize, en, blstr, 0.0F, 1.0F, &transformOptions);
   }
   in.close();
+
+  if (trace) trace->finish(en.size());
 
   if (shared->GetOptionMultipleFileMode()) { //multiple file mode
     if( verbose ) {

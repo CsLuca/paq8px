@@ -71,6 +71,7 @@ static void printHelp() {
     "Misc options:\n"
     "  -v                   | Verbose output\n"
     "  -log FILE            | Append compression results with runtime to log file\n"
+    "  -trace FILE          | Research JSONL segmentation trace (single-file compression only)\n"
     "  -simd MODE           | Override SIMD detection - expert only (NONE|SSE2|SSE3|SSE41|AVX2|AVX512|NEON)\n"
     "\n"
     "Notes:\n"
@@ -456,6 +457,7 @@ int processCommandLine(int argc, char **argv) {
     FileName logfile;
     FileName lstmLoadFilename;
     FileName lstmSaveFilename;
+    FileName traceFilename;
 
     for( int i = 1; i < argc; i++ ) {
       int argLen = static_cast<int>(strlen(argv[i]));
@@ -530,6 +532,9 @@ int processCommandLine(int argc, char **argv) {
             quit("The -log switch requires a filename.");
           }
           logfile += argv[i];
+        } else if (strcasecmp(argv[i], "-trace") == 0) {
+          if (traceFilename.strsize() != 0 || ++i == argc) quit("Specify one filename after -trace");
+          traceFilename += argv[i];
         } else if (strcasecmp(argv[i], "-loadlstm:text") == 0) {
           if (lstmLoadFilename.strsize() != 0) {
             quit("Only one LSTM load file may be specified.");
@@ -1045,6 +1050,14 @@ int processCommandLine(int argc, char **argv) {
       quit("Can't list. Filenames are not stored in single file mode.\n");
     }
 
+    std::unique_ptr<SegmentationTrace> segmentationTrace;
+    if (traceFilename.strsize() != 0) {
+      if (mode != COMPRESS || shared.GetOptionMultipleFileMode()) quit("-trace requires single-file compression");
+      if (std::filesystem::absolute(std::filesystem::u8path(traceFilename.c_str())).lexically_normal() ==
+          std::filesystem::absolute(std::filesystem::u8path(archiveName.c_str())).lexically_normal())
+        throw std::runtime_error("Trace path must differ from archive path");
+      segmentationTrace = std::make_unique<SegmentationTrace>(traceFilename.c_str());
+    }
     // Compress or decompress files
     if( mode == COMPRESS ) {
       if( !shared.toScreen ) { //we need a minimal feedback when redirected
@@ -1072,7 +1085,7 @@ int processCommandLine(int argc, char **argv) {
           fprintf(stderr, "\nFilename: %s (%" PRIu64 " bytes)\n", fName, fSize);
         }
         printf("\nFilename: %s (%" PRIu64 " bytes)\n", fName, fSize);
-        compressfile(&shared, fName, fSize, en, verbose);
+        compressfile(&shared, fName, fSize, en, verbose, segmentationTrace.get());
         totalSize += fSize + 4; //4: file size information
         contentSize += fSize;
       }
