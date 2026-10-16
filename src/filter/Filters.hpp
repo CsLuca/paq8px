@@ -5,6 +5,7 @@
 #include "../CharacterNames.hpp"
 #include "../Encoder.hpp"
 #include "../TransformOptions.hpp"
+#include "../SegmentationPlan.hpp"
 #include "../file/File.hpp"
 #include "../file/FileDisk.hpp"
 #include "../file/FileTmp.hpp"
@@ -2593,7 +2594,7 @@ static void compressRecursiveForTar(File* in, uint64_t bytesToProcess, Encoder& 
 // For each block, output
 // <type> <size> and call encode_X to convert to type X.
 // Test transform and compress.
-static void compressfile(const Shared* const shared, const char *filename, uint64_t fileSize, Encoder &en, bool verbose, SegmentationTrace* trace = nullptr) {
+static void compressfile(const Shared* const shared, const char *filename, uint64_t fileSize, Encoder &en, bool verbose, SegmentationTrace* trace = nullptr, const SegmentationPlan* replay = nullptr) {
   assert(en.getMode() == COMPRESS);
   assert(filename && filename[0]);
 
@@ -2608,7 +2609,16 @@ static void compressfile(const Shared* const shared, const char *filename, uint6
   transformOptions.trace = trace;
   if (trace) trace->begin(filename, fileSize);
   BlockType forcedBlockType = shared->GetOptionDetectBlockAsBinary() ? BlockType::DEFAULT : shared->GetOptionDetectBlockAsText() ? BlockType::TEXT : BlockType::Count;
-  if (forcedBlockType != BlockType::Count) {
+  if (replay) {
+    int blNum = 0; float p1 = 0.0f, p2 = 1.0f;
+    const float pscale = fileSize ? 1.0f / fileSize : 0;
+    for (const auto& entry : replay->entries) {
+      in.setpos(entry.start);
+      compressBlock(&in, entry.start, entry.length, blNum, entry.type, entry.info, en,
+                    blstr, p1, p2, pscale, &transformOptions, "replay");
+    }
+  }
+  else if (forcedBlockType != BlockType::Count) {
     // skip blockType detection + compress with DEFAULT or TEXT
     const uint64_t begin = 0;
     int blNum = 0;

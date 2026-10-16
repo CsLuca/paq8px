@@ -72,6 +72,9 @@ static void printHelp() {
     "  -v                   | Verbose output\n"
     "  -log FILE            | Append compression results with runtime to log file\n"
     "  -trace FILE          | Research JSONL segmentation trace (single-file compression only)\n"
+    "  -replay FILE         | Replay fixed research segmentation plan\n"
+    "  -replay-change I T   | Change one root label (TEXT/DEFAULT or TEXT_EOL to TEXT)\n"
+    "  -replay-boundary I P | Move one plain TEXT/DEFAULT boundary to byte offset P\n"
     "  -simd MODE           | Override SIMD detection - expert only (NONE|SSE2|SSE3|SSE41|AVX2|AVX512|NEON)\n"
     "\n"
     "Notes:\n"
@@ -458,6 +461,17 @@ int processCommandLine(int argc, char **argv) {
     FileName lstmLoadFilename;
     FileName lstmSaveFilename;
     FileName traceFilename;
+    FileName replayFilename;
+    int replayIndex = -1, replayType = -1, boundaryIndex = -1;
+    uint64_t boundaryOffset = 0;
+    auto parseUnsigned = [](const char* value) -> uint64_t {
+      std::string text(value);
+      if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos) throw std::runtime_error("Invalid replay numeric argument");
+      size_t consumed = 0;
+      uint64_t number = std::stoull(text, &consumed);
+      if (consumed != text.size()) throw std::runtime_error("Invalid replay number");
+      return number;
+    };
 
     for( int i = 1; i < argc; i++ ) {
       int argLen = static_cast<int>(strlen(argv[i]));
@@ -532,6 +546,17 @@ int processCommandLine(int argc, char **argv) {
             quit("The -log switch requires a filename.");
           }
           logfile += argv[i];
+        } else if (strcasecmp(argv[i], "-replay") == 0) {
+          if (replayFilename.strsize() || ++i == argc) throw std::runtime_error("Specify one replay plan");
+          replayFilename += argv[i];
+        } else if (strcasecmp(argv[i], "-replay-change") == 0 || strcasecmp(argv[i], "-replay-boundary") == 0) {
+          bool boundary = strcasecmp(argv[i], "-replay-boundary") == 0;
+          if (replayIndex >= 0 || boundaryIndex >= 0 || i + 2 >= argc) throw std::runtime_error("Specify one complete intervention");
+          uint64_t index = parseUnsigned(argv[++i]);
+          uint64_t value = parseUnsigned(argv[++i]);
+          if (index > INT32_MAX || (!boundary && value >= uint64_t(BlockType::Count))) throw std::runtime_error("Replay index/type out of range");
+          if (boundary) { boundaryIndex = int(index); boundaryOffset = value; }
+          else { replayIndex = int(index); replayType = int(value); }
         } else if (strcasecmp(argv[i], "-trace") == 0) {
           if (traceFilename.strsize() != 0 || ++i == argc) quit("Specify one filename after -trace");
           traceFilename += argv[i];
@@ -1050,6 +1075,11 @@ int processCommandLine(int argc, char **argv) {
       quit("Can't list. Filenames are not stored in single file mode.\n");
     }
 
+    if ((replayIndex >= 0 || boundaryIndex >= 0) && !replayFilename.strsize()) throw std::runtime_error("Intervention requires -replay");
+    if (replayFilename.strsize() && (mode != COMPRESS || shared.GetOptionMultipleFileMode()
+        || shared.GetOptionDetectBlockAsBinary() || shared.GetOptionDetectBlockAsText()
+        || level == 0 || shared.GetOptionUseLSTM() || shared.GetOptionTrainExe() || shared.GetOptionTrainTxt()))
+      throw std::runtime_error("Replay requires single-file CM compression without forced mode/pretraining/LSTM");
     std::unique_ptr<SegmentationTrace> segmentationTrace;
     if (traceFilename.strsize() != 0) {
       if (mode != COMPRESS || shared.GetOptionMultipleFileMode()) quit("-trace requires single-file compression");
@@ -1085,7 +1115,10 @@ int processCommandLine(int argc, char **argv) {
           fprintf(stderr, "\nFilename: %s (%" PRIu64 " bytes)\n", fName, fSize);
         }
         printf("\nFilename: %s (%" PRIu64 " bytes)\n", fName, fSize);
-        compressfile(&shared, fName, fSize, en, verbose, segmentationTrace.get());
+        std::unique_ptr<SegmentationPlan> replay;
+        if (replayFilename.strsize()) replay = std::make_unique<SegmentationPlan>(replayFilename.c_str(), fName, fSize,
+            level, simdIset, replayIndex, replayType, boundaryIndex, boundaryOffset);
+        compressfile(&shared, fName, fSize, en, verbose, segmentationTrace.get(), replay.get());
         totalSize += fSize + 4; //4: file size information
         contentSize += fSize;
       }
@@ -1183,6 +1216,10 @@ int processCommandLine(int argc, char **argv) {
     // we catch only the intentional exceptions from quit() to exit gracefully
     // any other exception should result in a crash and must be investigated
   catch( IntentionalException const & ) {
+  }
+  catch (std::exception const& error) {
+    fprintf(stderr, "Research option error: %s\n", error.what());
+    return 1;
   }
 
   return 0;
