@@ -28,7 +28,8 @@ public:
 
   SegmentationPlan(const char* path, const char* inputPath, uint64_t inputSize,
                    int level, int simd, int changeIndex, int changeType,
-                   int boundaryIndex, uint64_t boundaryOffset) {
+                   int boundaryIndex, uint64_t boundaryOffset,
+                   int splitIndex = -1, uint64_t splitStart = 0, uint64_t splitEnd = 0) {
     std::ifstream plan(std::filesystem::u8path(path), std::ios::binary);
     std::ifstream input(std::filesystem::u8path(inputPath), std::ios::binary);
     if (!plan || !input) throw std::runtime_error("Cannot open replay plan/input");
@@ -57,7 +58,8 @@ public:
       entries.push_back(entry);
     }
     if (position != size || plan.get() != EOF) throw std::runtime_error("Replay coverage/trailing data invalid");
-    if (changeIndex >= 0 && boundaryIndex >= 0) throw std::runtime_error("Only one replay intervention permitted");
+    if (int(changeIndex >= 0) + int(boundaryIndex >= 0) + int(splitIndex >= 0) > 1)
+      throw std::runtime_error("Only one replay intervention permitted");
     if (changeIndex >= 0) {
       if (size_t(changeIndex) >= entries.size()) throw std::runtime_error("Invalid replay change index");
       auto& entry = entries[changeIndex];
@@ -76,6 +78,18 @@ public:
           || boundaryOffset == right.start) throw std::runtime_error("Unsupported replay boundary movement");
       left.length = boundaryOffset - left.start;
       right.start = boundaryOffset; right.length = end - boundaryOffset;
+    }
+    if (splitIndex >= 0) {
+      if (size_t(splitIndex) >= entries.size()) throw std::runtime_error("Invalid replay split index");
+      const Entry original = entries[splitIndex];
+      const uint64_t end = original.start + original.length;
+      if (original.type != BlockType::TEXT || !(original.start < splitStart && splitStart < splitEnd && splitEnd < end))
+        throw std::runtime_error("Split requires one TEXT block and three nonempty intervals");
+      const Entry left{original.start, splitStart - original.start, BlockType::TEXT, original.info};
+      const Entry middle{splitStart, splitEnd - splitStart, BlockType::DEFAULT, original.info};
+      const Entry right{splitEnd, end - splitEnd, BlockType::TEXT, original.info};
+      entries[splitIndex] = left;
+      entries.insert(entries.begin() + splitIndex + 1, {middle, right});
     }
   }
 };

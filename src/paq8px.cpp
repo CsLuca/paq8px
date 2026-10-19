@@ -75,6 +75,7 @@ static void printHelp() {
     "  -replay FILE         | Replay fixed research segmentation plan\n"
     "  -replay-change I T   | Change one root label (TEXT/DEFAULT or TEXT_EOL to TEXT)\n"
     "  -replay-boundary I P | Move one plain TEXT/DEFAULT boundary to byte offset P\n"
+    "  -replay-split I A B  | Split one TEXT block into TEXT/DEFAULT/TEXT at A,B\n"
     "  -simd MODE           | Override SIMD detection - expert only (NONE|SSE2|SSE3|SSE41|AVX2|AVX512|NEON)\n"
     "\n"
     "Notes:\n"
@@ -464,6 +465,8 @@ int processCommandLine(int argc, char **argv) {
     FileName replayFilename;
     int replayIndex = -1, replayType = -1, boundaryIndex = -1;
     uint64_t boundaryOffset = 0;
+    int splitIndex = -1;
+    uint64_t splitStart = 0, splitEnd = 0;
     auto parseUnsigned = [](const char* value) -> uint64_t {
       std::string text(value);
       if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos) throw std::runtime_error("Invalid replay numeric argument");
@@ -549,9 +552,16 @@ int processCommandLine(int argc, char **argv) {
         } else if (strcasecmp(argv[i], "-replay") == 0) {
           if (replayFilename.strsize() || ++i == argc) throw std::runtime_error("Specify one replay plan");
           replayFilename += argv[i];
+        } else if (strcasecmp(argv[i], "-replay-split") == 0) {
+          if (replayIndex >= 0 || boundaryIndex >= 0 || splitIndex >= 0 || i + 3 >= argc)
+            throw std::runtime_error("Specify one complete split intervention");
+          uint64_t index = parseUnsigned(argv[++i]);
+          splitStart = parseUnsigned(argv[++i]); splitEnd = parseUnsigned(argv[++i]);
+          if (index > INT32_MAX) throw std::runtime_error("Split index out of range");
+          splitIndex = int(index);
         } else if (strcasecmp(argv[i], "-replay-change") == 0 || strcasecmp(argv[i], "-replay-boundary") == 0) {
           bool boundary = strcasecmp(argv[i], "-replay-boundary") == 0;
-          if (replayIndex >= 0 || boundaryIndex >= 0 || i + 2 >= argc) throw std::runtime_error("Specify one complete intervention");
+          if (replayIndex >= 0 || boundaryIndex >= 0 || splitIndex >= 0 || i + 2 >= argc) throw std::runtime_error("Specify one complete intervention");
           uint64_t index = parseUnsigned(argv[++i]);
           uint64_t value = parseUnsigned(argv[++i]);
           if (index > INT32_MAX || (!boundary && value >= uint64_t(BlockType::Count))) throw std::runtime_error("Replay index/type out of range");
@@ -1075,7 +1085,7 @@ int processCommandLine(int argc, char **argv) {
       quit("Can't list. Filenames are not stored in single file mode.\n");
     }
 
-    if ((replayIndex >= 0 || boundaryIndex >= 0) && !replayFilename.strsize()) throw std::runtime_error("Intervention requires -replay");
+    if ((replayIndex >= 0 || boundaryIndex >= 0 || splitIndex >= 0) && !replayFilename.strsize()) throw std::runtime_error("Intervention requires -replay");
     if (replayFilename.strsize() && (mode != COMPRESS || shared.GetOptionMultipleFileMode()
         || shared.GetOptionDetectBlockAsBinary() || shared.GetOptionDetectBlockAsText()
         || level == 0 || shared.GetOptionUseLSTM() || shared.GetOptionTrainExe() || shared.GetOptionTrainTxt()))
@@ -1117,7 +1127,7 @@ int processCommandLine(int argc, char **argv) {
         printf("\nFilename: %s (%" PRIu64 " bytes)\n", fName, fSize);
         std::unique_ptr<SegmentationPlan> replay;
         if (replayFilename.strsize()) replay = std::make_unique<SegmentationPlan>(replayFilename.c_str(), fName, fSize,
-            level, simdIset, replayIndex, replayType, boundaryIndex, boundaryOffset);
+            level, simdIset, replayIndex, replayType, boundaryIndex, boundaryOffset, splitIndex, splitStart, splitEnd);
         compressfile(&shared, fName, fSize, en, verbose, segmentationTrace.get(), replay.get());
         totalSize += fSize + 4; //4: file size information
         contentSize += fSize;
